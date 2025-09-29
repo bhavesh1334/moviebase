@@ -124,12 +124,19 @@ jobs:
               export PATH="$PNPM_HOME:$HOME/.local/bin:$PATH"
             fi
 
+            # Allow install scripts (e.g., sharp) in prod
+            pnpm config set allow-scripts true --location=project
+
             # Install only production deps
             pnpm install --prod --frozen-lockfile || pnpm install --prod
 
-            # Start or restart app with PM2
+            # Export runtime env
+            export NODE_ENV=production
+            export PORT=8000
+
+            # Start or restart app with PM2 (no --env flag to avoid warning)
             if [ -f ecosystem.config.js ]; then
-              pm2 restart ecosystem.config.js --env production || pm2 start ecosystem.config.js --env production
+              pm2 restart ecosystem.config.js || pm2 start ecosystem.config.js
             else
               pm2 restart moviebase-client || pm2 start npm --name "moviebase-client" -- start
             fi
@@ -140,6 +147,7 @@ jobs:
             pm2 startup -u $USER --hp $HOME
 
             # Health check (adjust port if needed)
+            sleep 5
             curl -f http://localhost:8000/ || (echo "Health check failed!" && exit 1)
 
             pm2 list
