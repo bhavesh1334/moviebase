@@ -9,10 +9,14 @@ on:
       - ".github/workflows/deploy_client.yml"
   workflow_dispatch:
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
+# Prevent multiple deploys overlapping
+concurrency:
+  group: client-deploy
+  cancel-in-progress: true
 
+jobs:
+  build:
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -21,40 +25,63 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: "22"
+          cache: "pnpm"
 
-      - name: Enable pnpm (Corepack) and build client
+      - name: Enable pnpm and install
         working-directory: ./client
         run: |
           corepack enable
           corepack prepare pnpm@latest --activate
           pnpm install --frozen-lockfile
-          pnpm run build
 
-      - name: Create client deployment package
+      - name: Build client
+        working-directory: ./client
+        run: pnpm run build
+
+      - name: Package client
         run: |
           CLIENT_DEPLOY_DIR=deploy-client
-          mkdir -p "$CLIENT_DEPLOY_DIR/.next"
-          cp -r client/.next "$CLIENT_DEPLOY_DIR/.next"
-          cp -r client/public "$CLIENT_DEPLOY_DIR/"
+          mkdir -p "$CLIENT_DEPLOY_DIR"
+
+          # Copy only what’s needed for production runtime
+          cp -r client/.next "$CLIENT_DEPLOY_DIR/"
+          cp -r client/public "$CLIENT_DEPLOY_DIR/" || true
           cp client/package.json "$CLIENT_DEPLOY_DIR/"
           cp client/pnpm-lock.yaml "$CLIENT_DEPLOY_DIR/" || true
+          cp client/next.config.* "$CLIENT_DEPLOY_DIR/" || true
           cp client/ecosystem.config.js "$CLIENT_DEPLOY_DIR/" || true
-          # Provide env for client
+
+          # Add .env.production from GitHub secret if provided
           if [ -n "${{ secrets.CLIENT_ENV_FILE }}" ]; then
             echo "${{ secrets.CLIENT_ENV_FILE }}" > "$CLIENT_DEPLOY_DIR/.env.production"
           fi
 
-      - name: Upload client package to EC2
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: client-build
+          path: deploy-client/
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: client-build
+          path: client-build
+
+      - name: Upload client to EC2 (atomic)
         uses: appleboy/scp-action@v0.1.4
         with:
           host: ${{ secrets.CLIENT_EC2_HOST }}
           username: ${{ secrets.CLIENT_EC2_USER }}
           key: ${{ secrets.CLIENT_EC2_PRIVATE_KEY }}
-          source: "deploy-client/"
-          target: "~/moviebase-client"
-          strip_components: 1
+          source: "client-build/"
+          target: "~/moviebase-client-temp"
 
-      - name: SSH to EC2, install prod deps with pnpm and restart PM2
+      - name: SSH to EC2 and restart PM2
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.CLIENT_EC2_HOST }}
@@ -62,27 +89,37 @@ jobs:
           key: ${{ secrets.CLIENT_EC2_PRIVATE_KEY }}
           script: |
             set -e
+            # Swap deployment atomically
+            rm -rf ~/moviebase-client-old || true
+            mv ~/moviebase-client ~/moviebase-client-old || true
+            mv ~/moviebase-client-temp ~/moviebase-client
+
             cd ~/moviebase-client
 
-            # Ensure Node is installed (assumes apt-based distro)
+            # Ensure Node.js 22
             if ! command -v node >/dev/null 2>&1; then
               curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
               sudo apt-get install -y nodejs
             fi
 
+            # Ensure pnpm (via Corepack)
+            corepack enable
+            corepack prepare pnpm@latest --activate
 
+            # Install only production deps
+            pnpm install --prod --frozen-lockfile
 
-            # Install production dependencies using pnpm and lockfile
-            pnpm install --prod --frozen-lockfile || pnpm install --prod
-
-            # Start or restart client with PM2
-            if ! command -v pm2 >/dev/null 2>&1; then
-              npm install -g pm2
-            fi
+            # Start or restart app with PM2
             if [ -f ecosystem.config.js ]; then
               pm2 restart ecosystem.config.js --env production || pm2 start ecosystem.config.js --env production
             else
-              # Fallback: start Next directly if no ecosystem file was provided
-              pm2 start node_modules/next/dist/bin/next --name "moviebase-client" -- start -p 8000
+              pm2 restart moviebase-client || pm2 start npm --name "moviebase-client" -- start
             fi
+
             pm2 save
+            pm2 startup -u $USER --hp $HOME
+
+            # Health check (adjust port if needed)
+            curl -f http://localhost:3000/ || (echo "Health check failed!" && exit 1)
+
+            pm2 list
