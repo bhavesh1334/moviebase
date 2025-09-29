@@ -96,7 +96,7 @@ jobs:
             mkdir -p ~/moviebase-client-temp
             tar -xzf ~/deploy-client.tgz -C ~/moviebase-client-temp
             echo "Contents of temp after extract:" && ls -la ~/moviebase-client-temp && ls -la ~/moviebase-client-temp/.next || true
-            if [ ! -d "~/moviebase-client-temp/.next" ]; then
+            if [ ! -d "$HOME/moviebase-client-temp/.next" ]; then
               echo ".next directory missing after extract. Aborting deploy." >&2
               exit 1
             fi
