@@ -144,7 +144,8 @@ jobs:
             pm2 save
             # Cleanup tarball
             rm -f ~/deploy-client.tgz
-            pm2 startup -u $USER --hp $HOME
+            # Configure PM2 startup (non-interactive; ignore if already configured)
+            sudo -n env PATH=$PATH:/usr/bin pm2 startup systemd -u $USER --hp $HOME || true
 
             # Health check (adjust port if needed)
             sleep 5
