@@ -47,9 +47,9 @@ jobs:
       - name: Upload client package to EC2
         uses: appleboy/scp-action@v0.1.4
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_PRIVATE_KEY }}
+          host: ${{ secrets.CLIENT_EC2_HOST }}
+          username: ${{ secrets.CLIENT_EC2_USER }}
+          key: ${{ secrets.CLIENT_EC2_PRIVATE_KEY }}
           source: "deploy-client/"
           target: "~/moviebase-client"
           strip_components: 1
@@ -57,9 +57,9 @@ jobs:
       - name: SSH to EC2, install prod deps with pnpm and restart PM2
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_PRIVATE_KEY }}
+          host: ${{ secrets.CLIENT_EC2_HOST }}
+          username: ${{ secrets.CLIENT_EC2_USER }}
+          key: ${{ secrets.CLIENT_EC2_PRIVATE_KEY }}
           script: |
             set -e
             cd ~/moviebase-client
