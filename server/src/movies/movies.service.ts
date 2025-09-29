@@ -60,8 +60,20 @@ export class MoviesService {
 
       // Build search filter
       const filter: any = { createdBy: new Types.ObjectId(userId) };
-      if (search) {
-        filter.title = { $regex: search, $options: 'i' };
+      if (search && typeof search === 'string') {
+        const trimmed = search.trim();
+        const asNumber = Number(trimmed);
+        const isNumeric = !Number.isNaN(asNumber);
+
+        if (isNumeric) {
+          // Match either title or publishingYear (exact match) when numeric input
+          filter.$or = [
+            { title: { $regex: trimmed, $options: 'i' } },
+            { publishingYear: asNumber },
+          ];
+        } else {
+          filter.title = { $regex: trimmed, $options: 'i' };
+        }
       }
 
       // Get movies with pagination
