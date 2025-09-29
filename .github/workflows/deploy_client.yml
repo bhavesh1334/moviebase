@@ -6,6 +6,8 @@ on:
       - deploy-client
     paths:
       - "client/**"
+      - ".github/workflows/deploy_client.yml"
+  workflow_dispatch:
 
 jobs:
   build:
