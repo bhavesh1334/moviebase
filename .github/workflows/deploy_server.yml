@@ -3,10 +3,10 @@ name: Deploy Server to EC2
 on:
   push:
     branches:
-      - main 
+      - main
     paths:
-      - 'server/**' 
-  workflow_dispatch: 
+      - 'server/**'
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -19,23 +19,30 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '22' # Use the Node.js version your project requires
+          node-version: '22'
 
-      - name: Install dependencies and build
+      - name: Enable pnpm (Corepack) and install dependencies & build
         working-directory: ./server
         run: |
-          npm ci
-          npm run build
+          # enable corepack and activate pnpm
+          corepack enable
+          corepack prepare pnpm@latest --activate
+
+          # install using pnpm and lockfile (fails if lockfile out of sync)
+          pnpm install --frozen-lockfile
+
+          # build
+          pnpm run build
 
       - name: Create deployment package
         run: |
           mkdir -p deploy
           cp -r server/dist deploy/
           cp server/package.json deploy/
-          cp server/package-lock.json deploy/
+          # include pnpm lockfile (if present)
+          cp server/pnpm-lock.yaml deploy/ || true
           cp server/ecosystem.config.js deploy/
           echo "${{ secrets.PROD_ENV_FILE }}" > deploy/.env
-          
 
       - name: Deploy to EC2
         uses: appleboy/scp-action@v0.1.4
@@ -43,11 +50,11 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_PRIVATE_KEY }}
-          source: "deploy/" # The folder we just created
-          target: "~/moviebase-server" # A directory on your EC2 instance
+          source: "deploy/"
+          target: "~/moviebase-server"
           strip_components: 1
 
-      - name: SSH into EC2, install dependencies and restart app
+      - name: SSH into EC2, enable pnpm and install production deps, restart app
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -55,5 +62,19 @@ jobs:
           key: ${{ secrets.EC2_PRIVATE_KEY }}
           script: |
             cd ~/moviebase-server
-            npm ci --only=production
+
+            # Ensure Node is installed (assumes apt-based distro). If Node is already present this returns quickly.
+            if ! command -v node >/dev/null 2>&1; then
+              curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+              sudo apt-get install -y nodejs
+            fi
+
+            # enable corepack and activate pnpm
+            corepack enable || (npm install -g corepack && corepack enable) || true
+            corepack prepare pnpm@latest --activate
+
+            # install production dependencies using pnpm and lockfile
+            pnpm install --prod --frozen-lockfile
+
+            # restart using pm2
             pm2 restart ecosystem.config.js --env production
