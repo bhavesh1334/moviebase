@@ -59,11 +59,8 @@ jobs:
           # Create tarball to preserve dot-directories like .next/
           tar -czf deploy-client.tgz -C "$CLIENT_DEPLOY_DIR" .
 
-          # Debug listing
-          echo "Packaged contents:" && ls -la "$CLIENT_DEPLOY_DIR" && echo "Tarball:" && ls -la deploy-client.tgz
-
       - name: Upload build artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: client-build
           path: deploy-client.tgz
@@ -73,7 +70,7 @@ jobs:
     needs: build
     steps:
       - name: Download build artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: client-build
           path: .
@@ -99,14 +96,10 @@ jobs:
             rm -rf ~/moviebase-client-temp || true
             mkdir -p ~/moviebase-client-temp
             tar -xzf ~/deploy-client.tgz -C ~/moviebase-client-temp
-
             # Swap deployment atomically
             rm -rf ~/moviebase-client-old || true
             mv ~/moviebase-client ~/moviebase-client-old || true
             mv ~/moviebase-client-temp ~/moviebase-client
-
-            # Cleanup tarball
-            rm -f ~/deploy-client.tgz
 
             cd ~/moviebase-client
 
@@ -131,6 +124,8 @@ jobs:
             fi
 
             pm2 save
+            # Cleanup tarball
+            rm -f ~/deploy-client.tgz
             pm2 startup -u $USER --hp $HOME
 
             # Health check (adjust port if needed)
