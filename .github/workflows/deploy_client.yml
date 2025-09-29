@@ -1,0 +1,88 @@
+name: Deploy Client to EC2
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "client/**"
+      - ".github/workflows/deploy_client.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "22"
+
+      - name: Enable pnpm (Corepack) and build client
+        working-directory: ./client
+        run: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: Create client deployment package
+        run: |
+          CLIENT_DEPLOY_DIR=deploy-client
+          mkdir -p "$CLIENT_DEPLOY_DIR/.next"
+          cp -r client/.next "$CLIENT_DEPLOY_DIR/.next"
+          cp -r client/public "$CLIENT_DEPLOY_DIR/"
+          cp client/package.json "$CLIENT_DEPLOY_DIR/"
+          cp client/pnpm-lock.yaml "$CLIENT_DEPLOY_DIR/" || true
+          cp client/ecosystem.config.js "$CLIENT_DEPLOY_DIR/" || true
+          # Provide env for client
+          if [ -n "${{ secrets.CLIENT_ENV_FILE }}" ]; then
+            echo "${{ secrets.CLIENT_ENV_FILE }}" > "$CLIENT_DEPLOY_DIR/.env.production"
+          fi
+
+      - name: Upload client package to EC2
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_PRIVATE_KEY }}
+          source: "deploy-client/"
+          target: "~/moviebase-client"
+          strip_components: 1
+
+      - name: SSH to EC2, install prod deps with pnpm and restart PM2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd ~/moviebase-client
+
+            # Ensure Node is installed (assumes apt-based distro)
+            if ! command -v node >/dev/null 2>&1; then
+              curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+              sudo apt-get install -y nodejs
+            fi
+
+
+
+            # Install production dependencies using pnpm and lockfile
+            pnpm install --prod --frozen-lockfile || pnpm install --prod
+
+            # Start or restart client with PM2
+            if ! command -v pm2 >/dev/null 2>&1; then
+              npm install -g pm2
+            fi
+            if [ -f ecosystem.config.js ]; then
+              pm2 restart ecosystem.config.js --env production || pm2 start ecosystem.config.js --env production
+            else
+              # Fallback: start Next directly if no ecosystem file was provided
+              pm2 start node_modules/next/dist/bin/next --name "moviebase-client" -- start -p 8000
+            fi
+            pm2 save
