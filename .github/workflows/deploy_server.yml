@@ -69,11 +69,13 @@ jobs:
               sudo apt-get install -y nodejs
             fi
 
-            # enable corepack and activate pnpm
-            corepack enable || (npm install -g corepack && corepack enable) || true
-            corepack prepare pnpm@latest --activate
+            # Install pnpm globally if not already installed
+            if ! command -v pnpm >/dev/null 2>&1; then
+                echo "Installing pnpm globally..."
+                npm install -g pnpm
+            fi
 
-            # install production dependencies using pnpm and lockfile
+            # Install production dependencies using pnpm and lockfile
             pnpm install --prod --frozen-lockfile
 
             # restart using pm2
