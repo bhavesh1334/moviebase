@@ -3,10 +3,10 @@ name: Deploy Server to EC2
 on:
   push:
     branches:
-      - main # Triggers on push to the main branch
+      - main 
     paths:
-      - 'server/**' # Only run when code in the server directory changes
-  workflow_dispatch: # Allows manual triggering
+      - 'server/**' 
+  workflow_dispatch: 
 
 jobs:
   deploy:
