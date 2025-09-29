@@ -95,12 +95,18 @@ jobs:
             rm -rf ~/moviebase-client-temp || true
             mkdir -p ~/moviebase-client-temp
             tar -xzf ~/deploy-client.tgz -C ~/moviebase-client-temp
+            echo "Contents of temp after extract:" && ls -la ~/moviebase-client-temp && ls -la ~/moviebase-client-temp/.next || true
+            if [ ! -d "~/moviebase-client-temp/.next" ]; then
+              echo ".next directory missing after extract. Aborting deploy." >&2
+              exit 1
+            fi
             # Swap deployment atomically
             rm -rf ~/moviebase-client-old || true
             mv ~/moviebase-client ~/moviebase-client-old || true
             mv ~/moviebase-client-temp ~/moviebase-client
 
             cd ~/moviebase-client
+            echo "Contents of deployed dir:" && ls -la && ls -la .next || true
 
             # Ensure Node.js 22
             if ! command -v node >/dev/null 2>&1; then
