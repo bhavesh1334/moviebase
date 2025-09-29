@@ -1,7 +1,24 @@
-import Image from "next/image";
+"use client";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAuthStore } from "@/store/auth";
 
 export default function Home() {
+  const router = useRouter();
+  const { user, hydrate } = useAuthStore();
+
+  useEffect(() => {
+    hydrate();
+  }, []);
+
+  useEffect(() => {
+    if (user) router.replace("/movies");
+    else router.replace("/login");
+  }, [user, router]);
+
   return (
-      <h2 className="text-3xl font-bold text-center my-10">MovieBase</h2>
+    <div className="flex min-h-screen items-center justify-center">
+      <span className="text-sm opacity-60">Redirecting…</span>
+    </div>
   );
 }
