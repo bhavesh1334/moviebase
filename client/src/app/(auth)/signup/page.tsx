@@ -39,7 +39,7 @@ export default function SignUpPage() {
   };
 
   return (
-    <div className="mx-auto max-w-sm py-10 flex flex-col items-center justify-center h-screen">
+    <div className="mx-auto max-w-sm py-10 px-4 flex flex-col items-center justify-center h-screen">
       <h1 className="text-2xl font-semibold mb-6">Create account</h1>
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 w-full">
         <div>
