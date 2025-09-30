@@ -1,154 +1,36 @@
-name: Deploy Client to EC2
+name: Deploy Next.js application
 
 on:
   push:
     branches:
-      - main
+      - deploy-client
     paths:
       - "client/**"
       - ".github/workflows/deploy_client.yml"
   workflow_dispatch:
 
-# Prevent multiple deploys overlapping
-concurrency:
-  group: client-deploy
-  cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: "22"
-
-      - name: Enable pnpm and install
-        working-directory: ./client
-        run: |
-          corepack enable
-          corepack prepare pnpm@latest --activate
-          pnpm install --frozen-lockfile
-
-      - name: Build client
-        working-directory: ./client
-        run: pnpm run build
-
-      - name: Package client
-        run: |
-          CLIENT_DEPLOY_DIR=deploy-client
-          mkdir -p "$CLIENT_DEPLOY_DIR"
-
-          # Copy only what’s needed for production runtime
-          cp -r client/.next "$CLIENT_DEPLOY_DIR/"
-          cp -r client/public "$CLIENT_DEPLOY_DIR/" || true
-          cp client/package.json "$CLIENT_DEPLOY_DIR/"
-          cp client/pnpm-lock.yaml "$CLIENT_DEPLOY_DIR/" || true
-          cp client/next.config.* "$CLIENT_DEPLOY_DIR/" || true
-          cp client/ecosystem.config.js "$CLIENT_DEPLOY_DIR/" || true
-
-          # Add .env.production from GitHub secret if provided
-          if [ -n "${{ secrets.CLIENT_ENV_FILE }}" ]; then
-            echo "${{ secrets.CLIENT_ENV_FILE }}" > "$CLIENT_DEPLOY_DIR/.env.production"
-          fi
-
-          # Create tarball to preserve dot-directories like .next/
-          tar -czf deploy-client.tgz -C "$CLIENT_DEPLOY_DIR" .
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: client-build
-          path: deploy-client.tgz
+      - name: Checkout Source
+        uses: actions/checkout@v4
+      - name: Create .env file
+        run: echo "NEXT_PUBLIC_API_URL=${{secrets.NEXT_PUBLIC_API_URL}}" > client/.env
+      - name: Build docker image
+        run: docker build -t bhavi1334/nextjs-app ./client
+      - name: Login to docker hub
+        run: docker login -u ${{secrets.DOCKER_USERNAME}} -p ${{secrets.DOCKER_PASSWORD}}
+      - name: Publish image to docker hub
+        run: docker push bhavi1334/nextjs-app:latest
 
   deploy:
-    runs-on: ubuntu-latest
     needs: build
+    runs-on: self-hosted
     steps:
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: client-build
-          path: .
-
-      - name: Upload client to EC2 (atomic)
-        uses: appleboy/scp-action@v0.1.4
-        with:
-          host: ${{ secrets.CLIENT_EC2_HOST }}
-          username: ${{ secrets.CLIENT_EC2_USER }}
-          key: ${{ secrets.CLIENT_EC2_PRIVATE_KEY }}
-          source: "deploy-client.tgz"
-          target: "~"
-
-      - name: SSH to EC2 and restart PM2
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.CLIENT_EC2_HOST }}
-          username: ${{ secrets.CLIENT_EC2_USER }}
-          key: ${{ secrets.CLIENT_EC2_PRIVATE_KEY }}
-          script: |
-            set -e
-            # Prepare temp directory and extract tarball
-            rm -rf ~/moviebase-client-temp || true
-            mkdir -p ~/moviebase-client-temp
-            tar -xzf ~/deploy-client.tgz -C ~/moviebase-client-temp
-            echo "Contents of temp after extract:" && ls -la ~/moviebase-client-temp && ls -la ~/moviebase-client-temp/.next || true
-            if [ ! -d "$HOME/moviebase-client-temp/.next" ]; then
-              echo ".next directory missing after extract. Aborting deploy." >&2
-              exit 1
-            fi
-            # Swap deployment atomically
-            rm -rf ~/moviebase-client-old || true
-            mv ~/moviebase-client ~/moviebase-client-old || true
-            mv ~/moviebase-client-temp ~/moviebase-client
-
-            cd ~/moviebase-client
-            echo "Contents of deployed dir:" && ls -la && ls -la .next || true
-
-            # Ensure Node.js 22
-            if ! command -v node >/dev/null 2>&1; then
-              curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-              sudo apt-get install -y nodejs
-            fi
-
-            # Ensure pnpm without requiring sudo (avoid corepack symlink perms)
-            export PNPM_HOME="$HOME/.local/share/pnpm"
-            export PATH="$PNPM_HOME:$HOME/.local/bin:$PATH"
-            if ! command -v pnpm >/dev/null 2>&1; then
-              mkdir -p "$PNPM_HOME" "$HOME/.local/bin"
-              curl -fsSL https://get.pnpm.io/install.sh | SHELL=$(which bash) bash -
-              export PNPM_HOME="$HOME/.local/share/pnpm"
-              export PATH="$PNPM_HOME:$HOME/.local/bin:$PATH"
-            fi
-
-            # Allow install scripts (e.g., sharp) in prod
-            pnpm config set allow-scripts true --location=project
-
-            # Install only production deps
-            pnpm install --prod --frozen-lockfile || pnpm install --prod
-
-            # Export runtime env
-            export NODE_ENV=production
-            export PORT=8000
-
-            # Start or restart app with PM2 (no --env flag to avoid warning)
-            if [ -f ecosystem.config.js ]; then
-              pm2 restart ecosystem.config.js || pm2 start ecosystem.config.js
-            else
-              pm2 restart moviebase-client || pm2 start npm --name "moviebase-client" -- start
-            fi
-
-            pm2 save
-            # Cleanup tarball
-            rm -f ~/deploy-client.tgz
-            # Configure PM2 startup (non-interactive; ignore if already configured)
-            sudo -n env PATH=$PATH:/usr/bin pm2 startup systemd -u $USER --hp $HOME || true
-
-            # Health check (adjust port if needed)
-            sleep 5
-            curl -f http://localhost:8000/ || (echo "Health check failed!" && exit 1)
-
-            pm2 list
+      - name: Pull image from docker hub
+        run: docker pull bhavi1334/nextjs-app:latest
+      - name: Delete old container
+        run: docker rm -f nextjs-app-container || true
+      - name: Run docker container
+        run: docker run -d -p 8000:8000 --name nextjs-app-container bhavi1334/nextjs-app
