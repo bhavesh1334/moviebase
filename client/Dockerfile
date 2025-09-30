@@ -22,4 +22,4 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm prune --prod
 USER node
 EXPOSE 8000
-CMD ["pnpm","run","start","--","-p","8000"]
+CMD ["pnpm", "run", "start"]
