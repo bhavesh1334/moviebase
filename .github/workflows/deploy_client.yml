@@ -28,6 +28,11 @@ jobs:
     needs: build
     runs-on: self-hosted
     steps:
+      - name: Free disk space on runner (images/containers)
+        run: |
+          docker system prune -af || true
+          docker volume prune -f || true
+          docker image prune -af || true
       - name: Pull image from docker hub
         run: docker pull bhavi1334/nextjs-app:latest
       - name: Delete old container
