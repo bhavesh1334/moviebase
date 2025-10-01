@@ -127,7 +127,23 @@ export default function MoviesPage() {
                         className="h-64 w-full object-cover"
                       />
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors" />
-                      <div className="absolute top-2 right-2 hidden group-hover:flex gap-2">
+                      {/* Mobile: always visible actions */}
+                      <div className="absolute top-2 right-2 flex md:hidden gap-2">
+                        <Link
+                          href={`/movies/${m._id}/edit`}
+                          className="p-2 rounded cursor-pointer border border-foreground/20 bg-background/80 hover:scale-110 transition-all duration-300"
+                        >
+                          <Pencil size={16} />
+                        </Link>
+                        <button
+                          onClick={() => setConfirmId(m._id)}
+                          className="p-2 rounded cursor-pointer border border-foreground/20 bg-background/80 hover:scale-110 transition-all duration-300"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                      {/* Desktop: show on hover */}
+                      <div className="absolute top-2 right-2 hidden md:group-hover:flex gap-2">
                         <Link
                           href={`/movies/${m._id}/edit`}
                           className="p-2 rounded cursor-pointer border border-foreground/20 bg-background/80 hover:scale-110 transition-all duration-300"
